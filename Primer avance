@@ -1,0 +1,1527 @@
+import 'package:flutter/material.dart';
+import 'dart:math' as math;
+
+void main() {
+  runApp(const MyApp());
+}
+
+String userName = "";
+String mood = "neutral";
+int sessionCount = 0;
+int streakDays = 3;
+
+// ─── Color Palette ──────────────────────────────────────────────────────────
+const Color kBg = Color(0xFF0D0D14);
+const Color kSurface = Color(0xFF16161F);
+const Color kCard = Color(0xFF1E1E2A);
+const Color kBorder = Color(0xFF2A2A3A);
+const Color kAccent = Color(0xFF7C6CF8);
+const Color kAccentLight = Color(0xFFA89BFF);
+const Color kPink = Color(0xFFFF6B9D);
+const Color kTeal = Color(0xFF4ECDC4);
+const Color kAmber = Color(0xFFFFBE0B);
+const Color kTextPrimary = Color(0xFFF0EFF8);
+const Color kTextSecondary = Color(0xFF8884A8);
+const Color kCrisisRed = Color(0xFFFF3B3B);
+
+// ─── Crisis keywords ─────────────────────────────────────────────────────────
+bool _isCrisisMessage(String text) {
+  final lower = text.toLowerCase();
+  final keywords = [
+    'suicidio', 'suicidarme', 'suicidar', 'quitarme la vida',
+    'no quiero vivir', 'quiero morir', 'matarme', 'acabar con todo',
+    'ya no quiero estar aquí', 'me quiero matar',
+  ];
+  return keywords.any((k) => lower.contains(k));
+}
+
+// ─── App ─────────────────────────────────────────────────────────────────────
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Contigo Siempre',
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: kBg,
+        fontFamily: 'Roboto',
+        colorScheme: const ColorScheme.dark(
+          primary: kAccent,
+          surface: kSurface,
+        ),
+      ),
+      home: const WelcomeScreen(),
+    );
+  }
+}
+
+// ─── Ambient Background ───────────────────────────────────────────────────────
+class AmbientPainter extends CustomPainter {
+  final double t;
+  final Color accentColor;
+  AmbientPainter(this.t, this.accentColor);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    paint.color = accentColor.withOpacity(0.06);
+    canvas.drawCircle(
+      Offset(cx + 80 * math.sin(t * 2 * math.pi),
+          cy - 100 + 40 * math.cos(t * 2 * math.pi)),
+      220, paint);
+    paint.color = kPink.withOpacity(0.04);
+    canvas.drawCircle(
+      Offset(cx - 120 + 60 * math.cos(t * 2 * math.pi * 0.7),
+          cy + 80 + 50 * math.sin(t * 2 * math.pi * 0.7)),
+      180, paint);
+    paint.color = kTeal.withOpacity(0.03);
+    canvas.drawCircle(
+      Offset(cx + 40 * math.sin(t * 2 * math.pi * 1.3),
+          cy + 160 + 30 * math.cos(t * 2 * math.pi * 1.3)),
+      140, paint);
+  }
+
+  @override
+  bool shouldRepaint(AmbientPainter old) => old.t != t;
+}
+
+class AmbientBackground extends StatefulWidget {
+  final Color accentColor;
+  final Widget child;
+  const AmbientBackground({super.key, this.accentColor = kAccent, required this.child});
+
+  @override
+  State<AmbientBackground> createState() => _AmbientBackgroundState();
+}
+
+class _AmbientBackgroundState extends State<AmbientBackground>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(seconds: 8))..repeat();
+  }
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (_, child) => CustomPaint(
+        painter: AmbientPainter(_ctrl.value, widget.accentColor),
+        child: child,
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+// ─── Flower Painter (Welcome Screen icon) ────────────────────────────────────
+class FlowerPainter extends CustomPainter {
+  final double openAmount;   // 0.0 = closed bud → 1.0 = fully open
+  final double rotateAnim;   // slow rotation
+  final double glowPulse;    // pulse for the glow
+
+  FlowerPainter({required this.openAmount, required this.rotateAnim, required this.glowPulse});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Clamp to [0,1] — elasticOut can briefly go negative or above 1
+    final t = openAmount.clamp(0.0, 1.0);
+
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+
+    canvas.save();
+    canvas.translate(cx, cy);
+    canvas.rotate(rotateAnim * 2 * math.pi * 0.04);
+    canvas.translate(-cx, -cy);
+
+    // ── Glow
+    final glowPaint = Paint()
+      ..color = kAccent.withOpacity(0.10 + glowPulse * 0.08)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28);
+    canvas.drawCircle(Offset(cx, cy), 60 + glowPulse * 10, glowPaint);
+
+    // ── Petals — 6 petals that open outward
+    final int petalCount = 6;
+    for (int i = 0; i < petalCount; i++) {
+      final angle = (i / petalCount) * 2 * math.pi;
+      final petalLength = (28.0 + t * 28.0).clamp(1.0, double.infinity);
+      final petalWidth  = (10.0 + t * 10.0).clamp(1.0, double.infinity);
+      final dist = 16.0 + t * 20.0;
+
+      final petalPx = cx + math.cos(angle) * dist;
+      final petalPy = cy + math.sin(angle) * dist;
+
+      // Color shifts with open amount
+      final Color petalColor = Color.lerp(
+        const Color(0xFF9B8FF5),
+        i % 2 == 0 ? kPink : kAccentLight,
+        t,
+      )!;
+
+      final paint = Paint()..color = petalColor.withOpacity((0.85 + t * 0.15).clamp(0.0, 1.0));
+
+      canvas.save();
+      canvas.translate(petalPx, petalPy);
+      canvas.rotate(angle + math.pi / 2);
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(0, petalLength / 2),
+          width: petalWidth,
+          height: petalLength,
+        ),
+        paint,
+      );
+      canvas.restore();
+    }
+
+    // ── Inner petals (smaller, rotate offset)
+    for (int i = 0; i < petalCount; i++) {
+      final angle = (i / petalCount) * 2 * math.pi + math.pi / petalCount;
+      final petalLength = (16.0 + t * 18.0).clamp(1.0, double.infinity);
+      final petalWidth  = (7.0  + t * 6.0).clamp(1.0, double.infinity);
+      final dist = 10.0 + t * 12.0;
+
+      final petalPx = cx + math.cos(angle) * dist;
+      final petalPy = cy + math.sin(angle) * dist;
+
+      final paint = Paint()..color = kTeal.withOpacity((0.6 + t * 0.3).clamp(0.0, 1.0));
+
+      canvas.save();
+      canvas.translate(petalPx, petalPy);
+      canvas.rotate(angle + math.pi / 2);
+      canvas.drawOval(
+        Rect.fromCenter(
+          center: Offset(0, petalLength / 2),
+          width: petalWidth,
+          height: petalLength,
+        ),
+        paint,
+      );
+      canvas.restore();
+    }
+
+    // ── Center
+    final centerColor = Color.lerp(kAccent, kAmber, t)!;
+    final centerPaint = Paint()..color = centerColor;
+    canvas.drawCircle(Offset(cx, cy), 12 + t * 6, centerPaint);
+
+    // ── Center shimmer dots
+    final dotPaint = Paint()..color = Colors.white.withOpacity(0.6);
+    for (int i = 0; i < 5; i++) {
+      final a = (i / 5) * 2 * math.pi;
+      canvas.drawCircle(
+        Offset(cx + math.cos(a) * 6, cy + math.sin(a) * 6),
+        1.5, dotPaint,
+      );
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(FlowerPainter old) =>
+      old.openAmount != openAmount || old.rotateAnim != rotateAnim || old.glowPulse != glowPulse;
+}
+
+class AnimatedFlower extends StatefulWidget {
+  final double size;
+  final bool blooming; // triggers the bloom animation
+
+  const AnimatedFlower({super.key, this.size = 140, this.blooming = false});
+
+  @override
+  State<AnimatedFlower> createState() => _AnimatedFlowerState();
+}
+
+class _AnimatedFlowerState extends State<AnimatedFlower>
+    with TickerProviderStateMixin {
+  late AnimationController _bloomCtrl;
+  late AnimationController _rotCtrl;
+  late AnimationController _pulseCtrl;
+  late Animation<double> _bloom;
+  late Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _bloomCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 700));
+    _bloom = CurvedAnimation(parent: _bloomCtrl, curve: Curves.easeOutBack);
+
+    _rotCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 20))..repeat();
+
+    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 2))
+      ..repeat(reverse: true);
+    _pulse = Tween(begin: 0.0, end: 1.0).animate(
+        CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void didUpdateWidget(AnimatedFlower old) {
+    super.didUpdateWidget(old);
+    if (widget.blooming && !old.blooming) {
+      _bloomCtrl.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _bloomCtrl.dispose();
+    _rotCtrl.dispose();
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_bloomCtrl, _rotCtrl, _pulseCtrl]),
+      builder: (, _) => SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: CustomPaint(
+          painter: FlowerPainter(
+            openAmount: _bloom.value,
+            rotateAnim: _rotCtrl.value,
+            glowPulse: _pulse.value,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Avatar Painter ──────────────────────────────────────────────────────────
+class AvatarPainter extends CustomPainter {
+  final String mood;
+  final double blink;
+  final double breathe;
+  final double float;
+
+  AvatarPainter({required this.mood, required this.blink, required this.breathe, required this.float});
+
+  Color get faceColor {
+    switch (mood) {
+      case 'happy': return const Color(0xFFFFD166);
+      case 'sad': return const Color(0xFF74B9FF);
+      case 'anxious': return const Color(0xFFFF7675);
+      case 'crisis': return const Color(0xFFB983FF); // pale purple — shocked
+      default: return const Color(0xFF81ECEC);
+    }
+  }
+
+  Color get cheekColor {
+    switch (mood) {
+      case 'happy': return const Color(0xFFFF6B9D).withOpacity(0.5);
+      case 'sad': return const Color(0xFF74B9FF).withOpacity(0.3);
+      case 'anxious': return const Color(0xFFFF7675).withOpacity(0.4);
+      case 'crisis': return const Color(0xFFFF3B3B).withOpacity(0.25);
+      default: return const Color(0xFFA29BFE).withOpacity(0.3);
+    }
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2 + float * 4;
+    final scale = 1.0 + breathe * 0.02;
+    final radius = (size.width / 2 - 8) * scale;
+
+    canvas.save();
+    canvas.translate(cx, cy);
+    canvas.scale(scale, scale);
+    canvas.translate(-cx, -cy);
+
+    // Glow
+    final glowPaint = Paint()
+      ..color = faceColor.withOpacity(0.2)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+    canvas.drawCircle(Offset(cx, cy), radius + 6, glowPaint);
+
+    // Face
+    canvas.drawCircle(Offset(cx, cy), radius, Paint()..color = faceColor);
+
+    // Cheeks
+    canvas.drawCircle(Offset(cx - radius * 0.52, cy + radius * 0.2),
+        radius * 0.26, Paint()..color = cheekColor);
+    canvas.drawCircle(Offset(cx + radius * 0.52, cy + radius * 0.2),
+        radius * 0.26, Paint()..color = cheekColor);
+
+    // Eyes — crisis = huge wide open
+    final eyeH = mood == 'crisis'
+        ? radius * 0.30
+        : (blink < 0.8 ? radius * 0.20 : (1.0 - blink) * radius * 0.25);
+    final eyeW = mood == 'crisis' ? radius * 0.22 : radius * 0.13;
+    final eyePaint = Paint()..color = Colors.white;
+    final pupilPaint = Paint()..color = const Color(0xFF2D3436);
+
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(cx - radius * 0.30, cy - radius * 0.12),
+          width: eyeW * 2, height: eyeH * 2), eyePaint);
+    canvas.drawCircle(Offset(cx - radius * 0.30, cy - radius * 0.12 + eyeH * 0.1),
+        eyeH * 0.55, pupilPaint);
+
+    canvas.drawOval(
+      Rect.fromCenter(center: Offset(cx + radius * 0.30, cy - radius * 0.12),
+          width: eyeW * 2, height: eyeH * 2), eyePaint);
+    canvas.drawCircle(Offset(cx + radius * 0.30, cy - radius * 0.12 + eyeH * 0.1),
+        eyeH * 0.55, pupilPaint);
+
+    // Mouth
+    final mouthPaint = Paint()
+      ..color = const Color(0xFF2D3436)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = radius * 0.035
+      ..strokeCap = StrokeCap.round;
+    final path = Path();
+    switch (mood) {
+      case 'happy':
+        path.moveTo(cx - radius * 0.30, cy + radius * 0.28);
+        path.cubicTo(cx - radius * 0.14, cy + radius * 0.50,
+            cx + radius * 0.14, cy + radius * 0.50, cx + radius * 0.30, cy + radius * 0.28);
+        break;
+      case 'sad':
+        path.moveTo(cx - radius * 0.30, cy + radius * 0.46);
+        path.cubicTo(cx - radius * 0.14, cy + radius * 0.28,
+            cx + radius * 0.14, cy + radius * 0.28, cx + radius * 0.30, cy + radius * 0.46);
+        break;
+      case 'anxious':
+        path.moveTo(cx - radius * 0.28, cy + radius * 0.36);
+        path.lineTo(cx - radius * 0.10, cy + radius * 0.42);
+        path.lineTo(cx + radius * 0.10, cy + radius * 0.32);
+        path.lineTo(cx + radius * 0.28, cy + radius * 0.38);
+        break;
+      case 'crisis':
+        // Open "O" mouth — drawn as a filled oval outline
+        canvas.drawOval(
+          Rect.fromCenter(
+            center: Offset(cx, cy + radius * 0.40),
+            width: radius * 0.30,
+            height: radius * 0.22,
+          ),
+          mouthPaint,
+        );
+        break;
+      default:
+        path.moveTo(cx - radius * 0.26, cy + radius * 0.38);
+        path.lineTo(cx + radius * 0.26, cy + radius * 0.38);
+    }
+    if (mood != 'crisis') canvas.drawPath(path, mouthPaint);
+
+    // Eyebrows
+    final browPaint = Paint()
+      ..color = const Color(0xFF2D3436).withOpacity(0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = radius * 0.035
+      ..strokeCap = StrokeCap.round;
+
+    if (mood == 'crisis') {
+      // Very high arched brows — pure shock/concern
+      final browPath = Path();
+      browPath.moveTo(cx - radius * 0.44, cy - radius * 0.52);
+      browPath.cubicTo(cx - radius * 0.30, cy - radius * 0.62,
+          cx - radius * 0.16, cy - radius * 0.60, cx - radius * 0.10, cy - radius * 0.50);
+      canvas.drawPath(browPath, browPaint);
+      final browPath2 = Path();
+      browPath2.moveTo(cx + radius * 0.10, cy - radius * 0.50);
+      browPath2.cubicTo(cx + radius * 0.16, cy - radius * 0.60,
+          cx + radius * 0.30, cy - radius * 0.62, cx + radius * 0.44, cy - radius * 0.52);
+      canvas.drawPath(browPath2, browPaint);
+    } else if (mood == 'anxious') {
+      canvas.drawLine(Offset(cx - radius * 0.42, cy - radius * 0.40),
+          Offset(cx - radius * 0.18, cy - radius * 0.34), browPaint);
+      canvas.drawLine(Offset(cx + radius * 0.18, cy - radius * 0.34),
+          Offset(cx + radius * 0.42, cy - radius * 0.40), browPaint);
+    } else if (mood == 'sad') {
+      canvas.drawLine(Offset(cx - radius * 0.42, cy - radius * 0.34),
+          Offset(cx - radius * 0.18, cy - radius * 0.42), browPaint);
+      canvas.drawLine(Offset(cx + radius * 0.18, cy - radius * 0.42),
+          Offset(cx + radius * 0.42, cy - radius * 0.34), browPaint);
+    } else {
+      final browY = mood == 'happy' ? cy - radius * 0.44 : cy - radius * 0.38;
+      canvas.drawLine(Offset(cx - radius * 0.42, browY),
+          Offset(cx - radius * 0.18, browY), browPaint);
+      canvas.drawLine(Offset(cx + radius * 0.18, browY),
+          Offset(cx + radius * 0.42, browY), browPaint);
+    }
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(AvatarPainter old) =>
+      old.mood != mood || old.blink != blink || old.breathe != breathe || old.float != float;
+}
+
+// ─── Animated Avatar Widget ───────────────────────────────────────────────────
+class AnimatedAvatar extends StatefulWidget {
+  final String mood;
+  final double size;
+  const AnimatedAvatar({super.key, required this.mood, this.size = 160});
+
+  @override
+  State<AnimatedAvatar> createState() => _AnimatedAvatarState();
+}
+
+class _AnimatedAvatarState extends State<AnimatedAvatar>
+    with TickerProviderStateMixin {
+  late AnimationController _breatheCtrl;
+  late AnimationController _blinkCtrl;
+  late AnimationController _floatCtrl;
+  late Animation<double> _breathe;
+  late Animation<double> _blink;
+  late Animation<double> _float;
+
+  @override
+  void initState() {
+    super.initState();
+    _breatheCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 3))
+      ..repeat(reverse: true);
+    _breathe = Tween(begin: 0.0, end: 1.0).animate(_breatheCtrl);
+
+    _floatCtrl = AnimationController(vsync: this, duration: const Duration(seconds: 4))
+      ..repeat(reverse: true);
+    _float = Tween(begin: -1.0, end: 1.0)
+        .animate(CurvedAnimation(parent: _floatCtrl, curve: Curves.easeInOut));
+
+    _blinkCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 120));
+    _blink = Tween(begin: 0.0, end: 1.0).animate(_blinkCtrl);
+    _scheduleBlink();
+  }
+
+  void _scheduleBlink() async {
+    while (mounted) {
+      await Future.delayed(Duration(milliseconds: 2500 + math.Random().nextInt(2000)));
+      if (!mounted) break;
+      await _blinkCtrl.forward();
+      await _blinkCtrl.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    _breatheCtrl.dispose();
+    _blinkCtrl.dispose();
+    _floatCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_breatheCtrl, _blinkCtrl, _floatCtrl]),
+      builder: (, _) => SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: CustomPaint(
+          painter: AvatarPainter(
+            mood: widget.mood,
+            blink: _blink.value,
+            breathe: _breathe.value,
+            float: _float.value,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Shared Widgets ───────────────────────────────────────────────────────────
+class AppButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onPressed;
+  final Color? color;
+  final bool outlined;
+
+  const AppButton({super.key, required this.label, required this.onPressed,
+    this.color, this.outlined = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? kAccent;
+    return GestureDetector(
+      onTap: onPressed,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        width: double.infinity,
+        height: 54,
+        decoration: BoxDecoration(
+          color: outlined ? Colors.transparent : c,
+          borderRadius: BorderRadius.circular(16),
+          border: outlined ? Border.all(color: c, width: 1.5) : null,
+          gradient: outlined ? null : LinearGradient(
+            colors: [c, Color.lerp(c, Colors.white, 0.15)!],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: outlined ? null : [
+            BoxShadow(color: c.withOpacity(0.35), blurRadius: 20, offset: const Offset(0, 6))
+          ],
+        ),
+        child: Center(
+          child: Text(label, style: TextStyle(
+            color: outlined ? c : Colors.white,
+            fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.5,
+          )),
+        ),
+      ),
+    );
+  }
+}
+
+class AppTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String hint;
+  const AppTextField({super.key, required this.controller, required this.hint});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      style: const TextStyle(color: kTextPrimary, fontSize: 15),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: kTextSecondary, fontSize: 15),
+        filled: true,
+        fillColor: kCard,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: kBorder, width: 1)),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: kBorder, width: 1)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: kAccent, width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      ),
+    );
+  }
+}
+
+// ─── Welcome Screen ───────────────────────────────────────────────────────────
+class WelcomeScreen extends StatefulWidget {
+  const WelcomeScreen({super.key});
+
+  @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen>
+    with SingleTickerProviderStateMixin {
+  final TextEditingController _controller = TextEditingController();
+  late AnimationController _fadeCtrl;
+  late Animation<double> _fadeAnim;
+  bool _blooming = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+    _fadeCtrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _fadeCtrl.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleStart() {
+    if (_controller.text.trim().isEmpty) return;
+    userName = _controller.text.trim();
+    setState(() => _blooming = true);
+    Future.delayed(const Duration(milliseconds: 750), () {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        PageRouteBuilder(
+          pageBuilder: (, a, _) => const HomeScreen(),
+          transitionsBuilder: (, a, _, child) =>
+              FadeTransition(opacity: a, child: child),
+          transitionDuration: const Duration(milliseconds: 500),
+        ),
+      );
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBg,
+      body: AmbientBackground(
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Spacer(flex: 2),
+
+                  // Flower icon
+                  Center(child: AnimatedFlower(size: 150, blooming: _blooming)),
+                  const SizedBox(height: 28),
+
+                  // App name
+                  const Center(
+                    child: Text(
+                      'Contigo Siempre',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w300,
+                        color: kTextPrimary,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Center(
+                    child: Text(
+                      'tu espacio mental',
+                      style: TextStyle(fontSize: 13, color: kTextSecondary, letterSpacing: 3),
+                    ),
+                  ),
+
+                  const Spacer(flex: 2),
+
+                  const Text(
+                    '¿Cómo quieres que te llame?',
+                    style: TextStyle(fontSize: 16, color: kTextSecondary, fontWeight: FontWeight.w400),
+                  ),
+                  const SizedBox(height: 12),
+                  AppTextField(controller: _controller, hint: 'Tu nombre...'),
+                  const SizedBox(height: 20),
+                  AppButton(label: 'Comenzar', onPressed: _handleStart),
+
+                  const Spacer(flex: 1),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Home Screen ──────────────────────────────────────────────────────────────
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _fadeCtrl;
+  late Animation<double> _fadeAnim;
+
+  Color get moodAccent {
+    switch (mood) {
+      case 'happy': return kAmber;
+      case 'sad': return const Color(0xFF74B9FF);
+      case 'anxious': return kPink;
+      case 'crisis': return kCrisisRed;
+      default: return kAccent;
+    }
+  }
+
+  String get moodLabel {
+    switch (mood) {
+      case 'happy': return 'Te sientes bien 🌟';
+      case 'sad': return 'Día difícil... aquí estoy 💙';
+      case 'anxious': return 'Respira, todo pasa 🌸';
+      case 'crisis': return 'Estoy aquí, no estás solo/a 🆘';
+      default: return 'Hola de nuevo 💜';
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _fadeCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
+    _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
+    _fadeCtrl.forward();
+  }
+
+  @override
+  void dispose() { _fadeCtrl.dispose(); super.dispose(); }
+
+  PageRoute _slide(Widget screen) => PageRouteBuilder(
+    pageBuilder: (, a, _) => screen,
+    transitionsBuilder: (, a, _, child) => SlideTransition(
+      position: Tween(begin: const Offset(1, 0), end: Offset.zero)
+          .animate(CurvedAnimation(parent: a, curve: Curves.easeOutCubic)),
+      child: child,
+    ),
+    transitionDuration: const Duration(milliseconds: 400),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBg,
+      body: AmbientBackground(
+        accentColor: moodAccent,
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Hola, $userName', style: const TextStyle(
+                            fontSize: 26, fontWeight: FontWeight.w600, color: kTextPrimary)),
+                        const SizedBox(height: 4),
+                        Text(moodLabel, style: const TextStyle(fontSize: 13, color: kTextSecondary)),
+                      ]),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: moodAccent.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: moodAccent.withOpacity(0.3), width: 1),
+                        ),
+                        child: Text(mood == 'neutral' ? 'estable' : mood,
+                            style: TextStyle(color: moodAccent, fontSize: 12, fontWeight: FontWeight.w500)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 32),
+                  Center(child: AnimatedAvatar(mood: mood, size: 180)),
+                  const SizedBox(height: 32),
+                  Row(children: [
+                    _StatCard(label: 'Racha', value: '$streakDays días', icon: '🔥'),
+                    const SizedBox(width: 12),
+                    _StatCard(label: 'Sesiones', value: '$sessionCount', icon: '💬'),
+                  ]),
+                  const SizedBox(height: 20),
+                  AppButton(
+                    label: 'Hablar con Contigo Siempre',
+                    onPressed: () => Navigator.push(context,
+                        _slide(ChatScreen(onMoodChange: () => setState(() {})))),
+                    color: moodAccent,
+                  ),
+                  const SizedBox(height: 12),
+                  AppButton(
+                    label: 'Ver mi progreso',
+                    onPressed: () => Navigator.push(context, _slide(const ProgressScreen())),
+                    outlined: true,
+                    color: moodAccent,
+                  ),
+                  const Spacer(),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final String icon;
+  const _StatCard({required this.label, required this.value, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: kCard, borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: kBorder, width: 1),
+        ),
+        child: Row(children: [
+          Text(icon, style: const TextStyle(fontSize: 22)),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: const TextStyle(fontSize: 11, color: kTextSecondary, letterSpacing: 0.5)),
+            Text(value, style: const TextStyle(fontSize: 16, color: kTextPrimary, fontWeight: FontWeight.w600)),
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Crisis Banner ────────────────────────────────────────────────────────────
+class CrisisBanner extends StatefulWidget {
+  const CrisisBanner({super.key});
+
+  @override
+  State<CrisisBanner> createState() => _CrisisBannerState();
+}
+
+class _CrisisBannerState extends State<CrisisBanner>
+    with TickerProviderStateMixin {
+  late AnimationController _slideCtrl;
+  late AnimationController _pulseCtrl;
+  late Animation<Offset> _slide;
+  late Animation<double> _pulse;
+  bool _dismissed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _slideCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+    _slide = Tween(begin: const Offset(0, 1), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _slideCtrl, curve: Curves.easeOutCubic));
+    _slideCtrl.forward();
+
+    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+      ..repeat(reverse: true);
+    _pulse = Tween(begin: 0.85, end: 1.0)
+        .animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _slideCtrl.dispose();
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  void _dismiss() async {
+    await _slideCtrl.reverse();
+    if (mounted) setState(() => _dismissed = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_dismissed) return const SizedBox.shrink();
+    return SlideTransition(
+      position: _slide,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A0A0A),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: kCrisisRed.withOpacity(0.6), width: 1.5),
+          boxShadow: [
+            BoxShadow(color: kCrisisRed.withOpacity(0.2), blurRadius: 20, spreadRadius: 2),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.favorite, color: kCrisisRed, size: 18),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Tu vida importa. No estás solo/a.',
+                  style: TextStyle(color: kTextPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ),
+              GestureDetector(
+                onTap: _dismiss,
+                child: const Icon(Icons.close, color: kTextSecondary, size: 18),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            const Text(
+              'Si estás pasando por un momento muy difícil, hay personas que pueden ayudarte ahora mismo.',
+              style: TextStyle(color: kTextSecondary, fontSize: 13, height: 1.5),
+            ),
+            const SizedBox(height: 14),
+            AnimatedBuilder(
+              animation: _pulse,
+              builder: (_, child) => Transform.scale(scale: _pulse.value, child: child),
+              child: GestureDetector(
+                onTap: () {
+                  // NOTE: No funcional — sin número real por ahora
+                  // Para activar: url_launcher con tel:800XXXXX
+                  showDialog(
+                    context: context,
+                    builder: (_) => AlertDialog(
+                      backgroundColor: kCard,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      title: const Text('Línea de la Vida', style: TextStyle(color: kTextPrimary, fontSize: 16)),
+                      content: const Text(
+                        'Esta función estará activa próximamente.\nRecuerda: no estás solo/a. 💜',
+                        style: TextStyle(color: kTextSecondary, fontSize: 14, height: 1.6),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cerrar', style: TextStyle(color: kAccentLight)),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: kCrisisRed,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(color: kCrisisRed.withOpacity(0.45), blurRadius: 18, offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.phone_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 8),
+                      Text('Llamar a la Línea de la Vida',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Floating Draggable Mini Avatar ──────────────────────────────────────────
+class FloatingMiniAvatar extends StatefulWidget {
+  final String mood;
+  const FloatingMiniAvatar({super.key, required this.mood});
+
+  @override
+  State<FloatingMiniAvatar> createState() => _FloatingMiniAvatarState();
+}
+
+class _FloatingMiniAvatarState extends State<FloatingMiniAvatar>
+    with TickerProviderStateMixin {
+  // Position on screen — starts bottom-left, set properly on first layout
+  double _x = 16;
+  double _y = -1; // -1 = not initialized yet
+  bool _isDragging = false;
+
+  // Idle float animation (pauses while dragging)
+  late AnimationController _floatCtrl;
+  late Animation<double> _floatY;
+
+  // Wiggle on release
+  late AnimationController _wiggleCtrl;
+  late Animation<double> _wiggle;
+
+  // Scale pop on grab
+  late AnimationController _scaleCtrl;
+  late Animation<double> _scale;
+
+  static const double _avatarSize = 56;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _floatCtrl = AnimationController(
+        vsync: this, duration: const Duration(seconds: 3))
+      ..repeat(reverse: true);
+    _floatY = Tween(begin: 0.0, end: -8.0)
+        .animate(CurvedAnimation(parent: _floatCtrl, curve: Curves.easeInOut));
+
+    _wiggleCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 400));
+    _wiggle = Tween(begin: -0.12, end: 0.12).animate(
+        CurvedAnimation(parent: _wiggleCtrl, curve: Curves.elasticIn));
+
+    _scaleCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 150));
+    _scale = Tween(begin: 1.0, end: 1.18)
+        .animate(CurvedAnimation(parent: _scaleCtrl, curve: Curves.easeOut));
+  }
+
+  @override
+  void dispose() {
+    _floatCtrl.dispose();
+    _wiggleCtrl.dispose();
+    _scaleCtrl.dispose();
+    super.dispose();
+  }
+
+  Color _moodColor(String m) {
+    switch (m) {
+      case 'happy': return kAmber;
+      case 'sad': return const Color(0xFF74B9FF);
+      case 'anxious': return kPink;
+      case 'crisis': return kCrisisRed;
+      default: return kAccent;
+    }
+  }
+
+  void _onPanStart(DragStartDetails d, BoxConstraints constraints) {
+    setState(() => _isDragging = true);
+    _floatCtrl.stop();
+    _scaleCtrl.forward();
+  }
+
+  void _onPanUpdate(DragUpdateDetails d, BoxConstraints constraints) {
+    setState(() {
+      _x = (_x + d.delta.dx).clamp(0, constraints.maxWidth - _avatarSize);
+      _y = (_y + d.delta.dy).clamp(0, constraints.maxHeight - _avatarSize);
+    });
+  }
+
+  void _onPanEnd(DragEndDetails d, BoxConstraints constraints) {
+    setState(() => _isDragging = false);
+    _scaleCtrl.reverse();
+    _floatCtrl.repeat(reverse: true);
+    // Wiggle on drop
+    wiggleCtrl.forward(from: 0).then(() => _wiggleCtrl.reverse());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      // Initialize Y to bottom-left on first build
+      if (_y < 0) _y = constraints.maxHeight - _avatarSize - 8;
+
+      return SizedBox.expand(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_floatCtrl, _wiggleCtrl, _scaleCtrl]),
+          builder: (, _) {
+            final floatOffset = _isDragging ? 0.0 : _floatY.value;
+            final wiggleAngle = _isDragging ? 0.0 : _wiggle.value * (1 - _wiggleCtrl.value);
+
+            return Stack(
+              children: [
+                Positioned(
+                  left: _x,
+                  top: _y + floatOffset,
+                  child: GestureDetector(
+                    onPanStart: (d) => _onPanStart(d, constraints),
+                    onPanUpdate: (d) => _onPanUpdate(d, constraints),
+                    onPanEnd: (d) => _onPanEnd(d, constraints),
+                    child: Transform.scale(
+                      scale: _scale.value,
+                      child: Transform.rotate(
+                        angle: wiggleAngle,
+                        child: Container(
+                          width: _avatarSize,
+                          height: _avatarSize,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: kCard,
+                            border: Border.all(
+                              color: _isDragging
+                                  ? _moodColor(widget.mood)
+                                  : kBorder,
+                              width: _isDragging ? 2 : 1.5,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _moodColor(widget.mood)
+                                    .withOpacity(_isDragging ? 0.55 : 0.28),
+                                blurRadius: _isDragging ? 22 : 14,
+                                spreadRadius: _isDragging ? 3 : 1,
+                              ),
+                            ],
+                          ),
+                          child: AnimatedAvatar(mood: widget.mood, size: _avatarSize),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    });
+  }
+}
+
+// ─── Chat Screen ──────────────────────────────────────────────────────────────
+class ChatScreen extends StatefulWidget {
+  final VoidCallback? onMoodChange;
+  const ChatScreen({super.key, this.onMoodChange});
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final List<Map<String, dynamic>> _messages = [];
+  final TextEditingController _controller = TextEditingController();
+  final ScrollController _scroll = ScrollController();
+  bool _showCrisis = false;
+
+  void _send() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+
+    final isCrisis = _isCrisisMessage(text);
+    final oldMood = mood;
+
+    setState(() {
+      _messages.add({'role': 'user', 'text': text});
+      sessionCount++;
+
+      final lower = text.toLowerCase();
+      if (isCrisis) {
+        mood = 'crisis';
+        _showCrisis = true;
+        _messages.add({'role': 'aura', 'text': _crisisReply()});
+      } else if (lower.contains('normal') || lower.contains('más o menos') ||
+          lower.contains('mas o menos') || lower.contains('regular')) {
+        mood = 'neutral';
+        _messages.add({'role': 'aura', 'text': _auraReply(mood)});
+      } else if (lower.contains('triste') || lower.contains('llorar') ||
+          lower.contains('deprim') || lower.contains('mal')) {
+        mood = 'sad';
+        _messages.add({'role': 'aura', 'text': _auraReply(mood)});
+      } else if (lower.contains('feliz') || lower.contains('bien') ||
+          lower.contains('genial') || lower.contains('contento') ||
+          lower.contains('alegre')) {
+        mood = 'happy';
+        _messages.add({'role': 'aura', 'text': _auraReply(mood)});
+      } else if (lower.contains('ansios') || lower.contains('estresad') ||
+          lower.contains('nervios') || lower.contains('preocup')) {
+        mood = 'anxious';
+        _messages.add({'role': 'aura', 'text': _auraReply(mood)});
+      } else {
+        _messages.add({'role': 'aura', 'text': _auraReply(mood)});
+      }
+
+      if (mood != oldMood) widget.onMoodChange?.call();
+    });
+
+    _controller.clear();
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (_scroll.hasClients) {
+        _scroll.animateTo(_scroll.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      }
+    });
+  }
+
+  String _auraReply(String m) {
+    switch (m) {
+      case 'sad': return 'Estoy aquí contigo. Está bien sentirse así. ¿Quieres contarme qué pasó?';
+      case 'happy': return '¡Qué bien escuchar eso! Ese estado de ánimo es un tesoro. ¿Qué te hizo sentir así hoy?';
+      case 'anxious': return 'Toma un respiro. Inspira... y exhala. Cuéntame qué te tiene con esa energía.';
+      default: return 'Gracias por compartir. ¿Cómo te ha ido el resto del día?';
+    }
+  }
+
+  String _crisisReply() =>
+      'Gracias por confiarme esto. Lo que sientes es real y merece atención. '
+      'Por favor, habla con alguien ahora — hay una línea de ayuda disponible para ti. 💜';
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBg,
+      appBar: AppBar(
+        backgroundColor: kSurface,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: kTextPrimary, size: 18),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Row(children: [
+          AnimatedAvatar(mood: mood, size: 36),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Contigo Siempre', style: TextStyle(
+                color: kTextPrimary, fontSize: 15, fontWeight: FontWeight.w600)),
+            Row(children: [
+              Container(width: 7, height: 7,
+                  decoration: const BoxDecoration(color: kTeal, shape: BoxShape.circle)),
+              const SizedBox(width: 4),
+              const Text('en línea', style: TextStyle(color: kTeal, fontSize: 11)),
+            ]),
+          ]),
+        ]),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: kBorder),
+        ),
+      ),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              // Messages list
+              Expanded(
+                child: ListView.builder(
+                  controller: _scroll,
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  itemCount: _messages.isEmpty ? 1 : _messages.length,
+                  itemBuilder: (_, i) {
+                    if (_messages.isEmpty) return _emptyState();
+                    final msg = _messages[i];
+                    final isUser = msg['role'] == 'user';
+                    return _MessageBubble(text: msg['text']!, isUser: isUser, mood: mood);
+                  },
+                ),
+              ),
+
+              // Crisis banner
+              if (_showCrisis) CrisisBanner(key: ValueKey(_showCrisis)),
+
+              // Input area
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                decoration: BoxDecoration(
+                  color: kSurface,
+                  border: Border(top: BorderSide(color: kBorder, width: 1)),
+                ),
+                child: Row(children: [
+                  Expanded(child: AppTextField(controller: _controller, hint: 'Cuéntame algo...')),
+                  const SizedBox(width: 10),
+                  GestureDetector(
+                    onTap: _send,
+                    child: Container(
+                      width: 50, height: 50,
+                      decoration: BoxDecoration(
+                        color: kAccent, borderRadius: BorderRadius.circular(14),
+                        boxShadow: [BoxShadow(color: kAccent.withOpacity(0.4), blurRadius: 16, offset: const Offset(0, 4))],
+                      ),
+                      child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ]),
+              ),
+            ],
+          ),
+
+          // ── Floating draggable mini avatar (fills stack so it can go anywhere)
+          Positioned.fill(
+            // Leave room at the bottom for the input bar
+            bottom: 90,
+            child: IgnorePointer(
+              ignoring: false,
+              child: FloatingMiniAvatar(mood: mood),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyState() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 40, left: 16, right: 16),
+      child: Column(children: [
+        AnimatedAvatar(mood: mood, size: 110),
+        const SizedBox(height: 20),
+        Text('Hola $userName,',
+            style: const TextStyle(fontSize: 20, color: kTextPrimary, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 6),
+        const Text(
+          'Estoy aquí para escucharte.\n¿Cómo estás hoy?',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 14, color: kTextSecondary, height: 1.6),
+        ),
+      ]),
+    );
+  }
+}
+
+// ─── Message Bubble ───────────────────────────────────────────────────────────
+class _MessageBubble extends StatelessWidget {
+  final String text;
+  final bool isUser;
+  final String mood;
+  const _MessageBubble({required this.text, required this.isUser, required this.mood});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        top: 5, bottom: 5,
+        left: isUser ? 60 : 0,
+        right: isUser ? 0 : 60,
+      ),
+      child: Row(
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Bot avatar on the left side
+          if (!isUser) ...[
+            AnimatedAvatar(mood: mood, size: 28),
+            const SizedBox(width: 6),
+          ],
+
+          // Bubble
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: isUser ? kAccent : kCard,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(18),
+                  topRight: const Radius.circular(18),
+                  bottomLeft: isUser ? const Radius.circular(18) : const Radius.circular(4),
+                  bottomRight: isUser ? const Radius.circular(4) : const Radius.circular(18),
+                ),
+                gradient: isUser ? LinearGradient(
+                  colors: [kAccent, Color.lerp(kAccent, kPink, 0.3)!],
+                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                ) : null,
+                boxShadow: isUser ? [
+                  BoxShadow(color: kAccent.withOpacity(0.25), blurRadius: 10, offset: const Offset(0, 3))
+                ] : null,
+              ),
+              child: Text(text, style: TextStyle(
+                color: isUser ? Colors.white : kTextPrimary,
+                fontSize: 14, height: 1.5,
+              )),
+            ),
+          ),
+
+          // Small spacer on user side for alignment
+          if (isUser) const SizedBox(width: 4),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Progress Screen ──────────────────────────────────────────────────────────
+class ProgressScreen extends StatelessWidget {
+  const ProgressScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: kBg,
+      appBar: AppBar(
+        backgroundColor: kSurface, elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: kTextPrimary, size: 18),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text('Mi progreso', style: TextStyle(
+            color: kTextPrimary, fontSize: 18, fontWeight: FontWeight.w600)),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: kBorder),
+        ),
+      ),
+      body: AmbientBackground(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(child: Column(children: [
+                const SizedBox(height: 12),
+                AnimatedAvatar(mood: mood, size: 140),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: kAccent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: kAccent.withOpacity(0.3), width: 1),
+                  ),
+                  child: Text('Estado actual: $mood', style: const TextStyle(
+                      color: kAccentLight, fontSize: 13, fontWeight: FontWeight.w500)),
+                ),
+              ])),
+              const SizedBox(height: 32),
+              const Text('Estadísticas', style: TextStyle(
+                  fontSize: 13, color: kTextSecondary, letterSpacing: 1.5, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 12),
+              _ProgressCard(icon: '🔥', label: 'Racha actual', value: '$streakDays días'),
+              _ProgressCard(icon: '💬', label: 'Sesiones totales', value: '$sessionCount'),
+              _ProgressCard(icon: '💜', label: 'Estado de ánimo', value: mood),
+              _ProgressCard(icon: '⭐', label: 'Mejor racha', value: '7 días'),
+              const SizedBox(height: 28),
+              const Text('Esta semana', style: TextStyle(
+                  fontSize: 13, color: kTextSecondary, letterSpacing: 1.5, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 12),
+              _WeekGrid(),
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProgressCard extends StatelessWidget {
+  final String icon;
+  final String label;
+  final String value;
+  const _ProgressCard({required this.icon, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kCard, borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kBorder, width: 1),
+      ),
+      child: Row(children: [
+        Text(icon, style: const TextStyle(fontSize: 24)),
+        const SizedBox(width: 14),
+        Text(label, style: const TextStyle(color: kTextSecondary, fontSize: 14)),
+        const Spacer(),
+        Text(value, style: const TextStyle(color: kTextPrimary, fontSize: 15, fontWeight: FontWeight.w600)),
+      ]),
+    );
+  }
+}
+
+class _WeekGrid extends StatelessWidget {
+  final List<String> days = const ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+  final List<bool> completed = const [true, true, true, false, false, false, false];
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: List.generate(7, (i) {
+        final done = completed[i];
+        return Column(children: [
+          Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(
+              color: done ? kAccent.withOpacity(0.2) : kCard,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: done ? kAccent : kBorder, width: done ? 1.5 : 1),
+            ),
+            child: done ? const Icon(Icons.check_rounded, color: kAccentLight, size: 18) : null,
+          ),
+          const SizedBox(height: 6),
+          Text(days[i], style: TextStyle(
+            fontSize: 10,
+            color: done ? kAccentLight : kTextSecondary,
+            fontWeight: done ? FontWeight.w600 : FontWeight.w400,
+          )),
+        ]);
+      }),
+    );
+  }
+}
